@@ -97,6 +97,11 @@ const METERS_PER_DEG_LAT = 111320;
 const metersPerDegLng = (lat: number): number =>
   METERS_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180);
 
+const toNumber = (value: number | string | null | undefined, fallback: number): number => {
+  const parsed = typeof value === 'string' ? Number(value) : value;
+  return Number.isFinite(parsed) ? (parsed as number) : fallback;
+};
+
 const createIcon = (color: string) =>
   L.divIcon({
     className: 'custom-marker',
@@ -166,26 +171,31 @@ const projectToRectangleEdge = (
 };
 
 const getBuildingBounds = (building: Building): [[number, number], [number, number]] => {
-  const width = building.width_meters || 20;
-  const height = building.height_meters || 20;
+  const lat = toNumber(building.lat, DEFAULT_CENTER.lat);
+  const lng = toNumber(building.lng, DEFAULT_CENTER.lng);
+  const width = toNumber(building.width_meters, 20);
+  const height = toNumber(building.height_meters, 20);
 
   const latOffset = height / 2 / METERS_PER_DEG_LAT;
-  const lngOffset = width / 2 / metersPerDegLng(building.lat);
+  const lngOffset = width / 2 / metersPerDegLng(lat);
 
   return [
-    [building.lat - latOffset, building.lng - lngOffset],
-    [building.lat + latOffset, building.lng + lngOffset],
+    [lat - latOffset, lng - lngOffset],
+    [lat + latOffset, lng + lngOffset],
   ];
 };
 
 const getTPBounds = (tp: TransformerStation): [[number, number], [number, number]] => {
-  const halfSize = tp.size_meters / 2;
+  const centerLat = toNumber(tp.center_lat, DEFAULT_CENTER.lat);
+  const centerLng = toNumber(tp.center_lng, DEFAULT_CENTER.lng);
+  const size = toNumber(tp.size_meters, 6);
+  const halfSize = size / 2;
   const latOffset = halfSize / METERS_PER_DEG_LAT;
-  const lngOffset = halfSize / metersPerDegLng(tp.center_lat);
+  const lngOffset = halfSize / metersPerDegLng(centerLat);
 
   return [
-    [tp.center_lat - latOffset, tp.center_lng - lngOffset],
-    [tp.center_lat + latOffset, tp.center_lng + lngOffset],
+    [centerLat - latOffset, centerLng - lngOffset],
+    [centerLat + latOffset, centerLng + lngOffset],
   ];
 };
 
