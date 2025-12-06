@@ -1,0 +1,32 @@
+{
+  "name": "network-tracing-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:gateway": "ts-node-dev src/gateway/index.ts",
+    "dev:tracing": "ts-node-dev src/tracing-service/index.ts",
+    "dev:rules": "ts-node-dev src/rules-service/index.ts",
+    "dev:all": "concurrently \"npm:dev:gateway\" \"npm:dev:tracing\" \"npm:dev:rules\"",
+    "lint": "eslint src --ext .ts --max-warnings=0"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.7.4",
+    "@types/pg": "^8.11.6",
+    "concurrently": "^9.0.1",
+    "eslint": "^9.9.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.1",
+    "@typescript-eslint/parser": "^8.0.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.6.3"
+  }
+}
+
+
