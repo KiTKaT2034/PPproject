@@ -1,4 +1,17 @@
 node_modules
+dist
+.cache
+*.log
+*.tmp
+*.swp
+.DS_Store
+.idea
+.vscode
+pnpm-lock.yaml
+yarn.lock
+coverage
+build
+node_modules
 .env
 .DS_Store
 dist

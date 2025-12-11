@@ -77,3 +77,7 @@ COMMENT ON TABLE system_distances IS 'Минимальные расстояни�
 
 
 
+
+
+
+

@@ -27,7 +27,6 @@
 #### ✅ База данных
 - ✅ Подключение к PostgreSQL
 - ✅ Все таблицы созданы (projects, buildings, mainlines, transformer_stations, traces, system_distances)
-- ✅ Добавлена поддержка 3D параметров зданий (vertical_height_meters)
 - ✅ Сервисы для работы с БД (projects-service, traces-service, buildings-service, mainlines-service, transformer-stations-service)
 
 #### ✅ API Endpoints
@@ -41,7 +40,7 @@
 - ✅ `GET /api/traces/project/:projectId` - трассы проекта
 - ✅ `DELETE /api/traces/:id` - удаление трассы
 
-- ✅ `POST /api/buildings` - создание здания (с поддержкой высоты)
+- ✅ `POST /api/buildings` - создание здания
 - ✅ `GET /api/buildings/project/:projectId` - здания проекта
 - ✅ `DELETE /api/buildings/:id` - удаление здания
 
@@ -75,12 +74,6 @@
 - ✅ Сохранение трасс в БД с валидацией расстояний
 - ✅ Загрузка всех данных проекта (здания, магистрали, ТП, трассы)
 - ✅ Отображение ошибок валидации расстояний
-
-## ❌ Не реализовано (требует доработки)
-
-### 3D Визуализация
-- ✅ Данные для 3D (высота) сохраняются в БД
-- ❌ Полноценное 3D отображение на карте (сейчас 2D проекция) - требует перехода на 3D движок карт (например, Mapbox GL JS или Cesium), если это критично. Текущая реализация использует 2D Leaflet.
 
 ## Технические детали
 

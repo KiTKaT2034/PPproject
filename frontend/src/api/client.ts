@@ -29,7 +29,7 @@ export type Building = {
   lng: number;
   width_meters: number | null;
   height_meters: number | null;
-  vertical_height_meters: number | null;
+  footprint_points?: Array<{ lat: number; lng: number }> | null;
   created_at: string;
   updated_at: string;
 };
@@ -89,7 +89,7 @@ export const projectsApi = {
 };
 
 export const buildingsApi = {
-  create: (data: { projectId: number; name: string; lat: number; lng: number; widthMeters?: number; heightMeters?: number; verticalHeightMeters?: number; description?: string }) =>
+  create: (data: { projectId: number; name: string; lat: number; lng: number; widthMeters?: number; heightMeters?: number; footprintPoints?: Array<{ lat: number; lng: number }>; description?: string }) =>
     apiClient.post<Building>('/api/buildings', data),
   getByProject: (projectId: number) => apiClient.get<Building[]>(`/api/buildings/project/${projectId}`),
   delete: (id: number) => apiClient.delete(`/api/buildings/${id}`),

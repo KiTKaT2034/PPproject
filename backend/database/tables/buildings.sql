@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS buildings (
     lng DECIMAL(11, 8) NOT NULL,
     width_meters DECIMAL(10, 2),
     height_meters DECIMAL(10, 2),
-    vertical_height_meters DECIMAL(10, 2),
+    footprint_points JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

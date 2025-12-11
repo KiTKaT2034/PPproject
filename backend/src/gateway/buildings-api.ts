@@ -4,7 +4,7 @@ import * as buildingsService from '../db/buildings-service';
 const router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
-  const { projectId, name, lat, lng, widthMeters, heightMeters, verticalHeightMeters, description } = req.body;
+  const { projectId, name, lat, lng, widthMeters, heightMeters, footprintPoints, description } = req.body;
 
   if (projectId === undefined || !name || lat === undefined || lng === undefined) {
     res.status(400).json({ error: 'Missing required fields: projectId, name, lat, lng' });
@@ -19,7 +19,7 @@ router.post('/', async (req: Request, res: Response) => {
       lng,
       widthMeters,
       heightMeters,
-      verticalHeightMeters,
+      Array.isArray(footprintPoints) ? footprintPoints : undefined,
       description,
     );
     res.json(building);

@@ -9,7 +9,7 @@ type Building = {
   lng: number;
   width_meters: number | null;
   height_meters: number | null;
-  vertical_height_meters: number | null;
+  footprint_points: Array<{ lat: number; lng: number }> | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -21,14 +21,23 @@ export const createBuilding = async (
   lng: number,
   widthMeters?: number,
   heightMeters?: number,
-  verticalHeightMeters?: number,
+  footprintPoints?: Array<{ lat: number; lng: number }>,
   description?: string,
 ): Promise<Building> => {
   const result = await pool.query(
-    `INSERT INTO buildings (project_id, name, description, lat, lng, width_meters, height_meters, vertical_height_meters)
+    `INSERT INTO buildings (project_id, name, description, lat, lng, width_meters, height_meters, footprint_points)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [projectId, name, description || null, lat, lng, widthMeters || null, heightMeters || null, verticalHeightMeters || null],
+    [
+      projectId,
+      name,
+      description || null,
+      lat,
+      lng,
+      widthMeters || null,
+      heightMeters || null,
+      footprintPoints ? JSON.stringify(footprintPoints) : null,
+    ],
   );
 
   return result.rows[0];

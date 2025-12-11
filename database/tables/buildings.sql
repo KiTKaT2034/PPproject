@@ -18,3 +18,7 @@ CREATE INDEX IF NOT EXISTS idx_buildings_location ON buildings(lat, lng);
 
 
 
+
+
+
+

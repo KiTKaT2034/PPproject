@@ -28,3 +28,7 @@ CREATE INDEX IF NOT EXISTS idx_traces_location ON traces(start_lat, start_lng, e
 
 
 
+
+
+
+
