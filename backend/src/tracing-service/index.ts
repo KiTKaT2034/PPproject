@@ -95,11 +95,3 @@ app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Tracing service listening on port ${PORT}`);
 });
-
-
-
-
-
-
-
-

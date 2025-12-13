@@ -49,10 +49,3 @@ export const deleteTransformerStation = async (stationId: number): Promise<boole
 
   return result.rowCount !== null && result.rowCount > 0;
 };
-
-
-
-
-
-
-

@@ -15,10 +15,3 @@ CREATE TABLE IF NOT EXISTS buildings (
 -- Индексы
 CREATE INDEX IF NOT EXISTS idx_buildings_project_id ON buildings(project_id);
 CREATE INDEX IF NOT EXISTS idx_buildings_location ON buildings(lat, lng);
-
-
-
-
-
-
-

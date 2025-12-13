@@ -25,10 +25,3 @@ CREATE INDEX IF NOT EXISTS idx_traces_building_id ON traces(building_id);
 CREATE INDEX IF NOT EXISTS idx_traces_mainline_id ON traces(mainline_id);
 CREATE INDEX IF NOT EXISTS idx_traces_transformer_station_id ON traces(transformer_station_id);
 CREATE INDEX IF NOT EXISTS idx_traces_location ON traces(start_lat, start_lng, end_lat, end_lng);
-
-
-
-
-
-
-

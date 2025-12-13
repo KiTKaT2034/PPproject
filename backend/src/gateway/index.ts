@@ -88,5 +88,3 @@ app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`  GET/POST /api/transformer-stations`);
 });
-
-

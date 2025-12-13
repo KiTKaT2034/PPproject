@@ -50,10 +50,3 @@ export const deleteMainline = async (mainlineId: number): Promise<boolean> => {
 
   return result.rowCount !== null && result.rowCount > 0;
 };
-
-
-
-
-
-
-

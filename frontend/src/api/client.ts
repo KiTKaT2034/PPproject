@@ -128,6 +128,3 @@ export const tracesApi = {
   getByProject: (projectId: number) => apiClient.get<Trace[]>(`/api/traces/project/${projectId}`),
   delete: (id: number) => apiClient.delete(`/api/traces/${id}`),
 };
-
-
-

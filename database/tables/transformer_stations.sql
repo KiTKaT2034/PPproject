@@ -14,10 +14,3 @@ CREATE TABLE IF NOT EXISTS transformer_stations (
 -- Индексы
 CREATE INDEX IF NOT EXISTS idx_transformer_stations_project_id ON transformer_stations(project_id);
 CREATE INDEX IF NOT EXISTS idx_transformer_stations_location ON transformer_stations(center_lat, center_lng);
-
-
-
-
-
-
-

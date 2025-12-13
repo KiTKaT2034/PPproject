@@ -137,10 +137,3 @@ export const validateTraceDistance = async (
     errors,
   };
 };
-
-
-
-
-
-
-

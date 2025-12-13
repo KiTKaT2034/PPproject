@@ -103,10 +103,3 @@ export const deleteProject = async (id: number): Promise<boolean> => {
 
   return result.rowCount !== null && result.rowCount > 0;
 };
-
-
-
-
-
-
-

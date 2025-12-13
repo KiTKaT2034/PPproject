@@ -16,10 +16,3 @@ CREATE TABLE IF NOT EXISTS mainlines (
 -- Индексы
 CREATE INDEX IF NOT EXISTS idx_mainlines_project_id ON mainlines(project_id);
 CREATE INDEX IF NOT EXISTS idx_mainlines_system_type ON mainlines(system_type);
-
-
-
-
-
-
-

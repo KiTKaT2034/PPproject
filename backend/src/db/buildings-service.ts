@@ -57,6 +57,3 @@ export const deleteBuilding = async (buildingId: number): Promise<boolean> => {
 
   return result.rowCount !== null && result.rowCount > 0;
 };
-
-
-

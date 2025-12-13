@@ -77,11 +77,3 @@ app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Rules service listening on port ${PORT}`);
 });
-
-
-
-
-
-
-
-
