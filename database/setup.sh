@@ -12,3 +12,4 @@ echo "Инициализация базы данных..."
 psql -U postgres -d pp_project_db -f init.sql
 
 echo "База данных успешно создана и инициализирована!"
+

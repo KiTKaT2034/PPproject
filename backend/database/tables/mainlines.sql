@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS mainlines (
     id SERIAL PRIMARY KEY,
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
-    system_type VARCHAR(50) NOT NULL CHECK (system_type IN ('water', 'sewerage', 'storm', 'heating')),
+    system_type VARCHAR(50) NOT NULL CHECK (system_type IN ('water', 'sewerage', 'storm', 'heating', 'telecom')),
     name VARCHAR(255) NOT NULL,
     description TEXT,
     start_lat DECIMAL(10, 8) NOT NULL,

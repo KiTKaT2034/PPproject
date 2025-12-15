@@ -15,3 +15,4 @@ CREATE TABLE IF NOT EXISTS system_distances (
 -- Индексы
 CREATE INDEX IF NOT EXISTS idx_system_distances_type1 ON system_distances(system_type_1);
 CREATE INDEX IF NOT EXISTS idx_system_distances_type2 ON system_distances(system_type_2);
+

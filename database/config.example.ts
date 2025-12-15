@@ -12,3 +12,4 @@ export const dbConfig = {
 export const connectionString =
   process.env.DATABASE_URL ||
   `postgresql://${dbConfig.user}:${dbConfig.password}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`;
+

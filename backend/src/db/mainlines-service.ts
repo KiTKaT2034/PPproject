@@ -1,6 +1,6 @@
 import { pool } from './config';
 
-type SystemType = 'water' | 'sewerage' | 'storm' | 'heating';
+type SystemType = 'water' | 'sewerage' | 'storm' | 'heating' | 'telecom';
 
 type Mainline = {
   id: number;

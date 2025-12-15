@@ -22,6 +22,19 @@ SET timezone = 'UTC';
 -- Обновление схемы для существующих БД (безопасно для повторного запуска)
 ALTER TABLE IF EXISTS buildings
     ADD COLUMN IF NOT EXISTS footprint_points JSONB;
+ALTER TABLE IF EXISTS transformer_stations
+    ADD COLUMN IF NOT EXISTS rotation_angle_degrees DECIMAL(5, 2) DEFAULT 0.0;
+-- Обновление CHECK constraint для mainlines (добавление telecom)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.table_constraints 
+               WHERE constraint_name = 'mainlines_system_type_check' 
+               AND table_name = 'mainlines') THEN
+        ALTER TABLE mainlines DROP CONSTRAINT mainlines_system_type_check;
+    END IF;
+    ALTER TABLE mainlines ADD CONSTRAINT mainlines_system_type_check 
+        CHECK (system_type IN ('water', 'sewerage', 'storm', 'heating', 'telecom'));
+END $$;
 
 -- Заполнение справочных данных: минимальные расстояния между системами (СП 42.13330.2016)
 -- Примерные значения, должны быть уточнены по нормативу

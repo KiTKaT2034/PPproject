@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS transformer_stations (
     center_lat DECIMAL(10, 8) NOT NULL,
     center_lng DECIMAL(11, 8) NOT NULL,
     size_meters DECIMAL(10, 2) DEFAULT 6.0,
+    footprint_points JSONB,
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

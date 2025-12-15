@@ -267,6 +267,100 @@ const projectToRectangleEdge = (
   return { lat: bottom, lng: clampedLng };
 };
 
+const findNearestMainlineProjection = (
+  point: LatLng,
+  mainlines: Mainline[],
+  systemType: SystemType,
+): { mainline: Mainline; projection: LatLng } | null => {
+  const filteredMainlines = mainlines.filter((m) => m.system_type === systemType);
+  if (filteredMainlines.length === 0) {
+    return null;
+  }
+
+  let best: { mainline: Mainline; projection: LatLng; distance: number } | null = null;
+
+  for (const mainline of filteredMainlines) {
+    const start: LatLng = {
+      lat: toNumber(mainline.start_lat, DEFAULT_CENTER.lat),
+      lng: toNumber(mainline.start_lng, DEFAULT_CENTER.lng),
+    };
+    const end: LatLng = {
+      lat: toNumber(mainline.end_lat, DEFAULT_CENTER.lat),
+      lng: toNumber(mainline.end_lng, DEFAULT_CENTER.lng),
+    };
+
+    const result = projectPointToSegment(point, start, end);
+
+    if (!best || result.distance < best.distance) {
+      best = {
+        mainline,
+        projection: result.projection,
+        distance: result.distance,
+      };
+    }
+  }
+
+  return best ? { mainline: best.mainline, projection: best.projection } : null;
+};
+
+const projectToPolygonEdge = (point: LatLng, vertices: LatLng[], center?: LatLng): LatLng => {
+  if (vertices.length < 2) {
+    return point;
+  }
+
+  let bestEdgeCenter: LatLng | null = null;
+  let bestScore = Infinity;
+
+  for (let i = 0; i < vertices.length; i++) {
+    const start = vertices[i];
+    const end = vertices[(i + 1) % vertices.length];
+    const edgeCenter: LatLng = {
+      lat: (start.lat + end.lat) / 2,
+      lng: (start.lng + end.lng) / 2,
+    };
+
+    let score: number;
+    if (center) {
+      const directionToPoint = {
+        lat: point.lat - center.lat,
+        lng: point.lng - center.lng,
+      };
+      const directionToEdge = {
+        lat: edgeCenter.lat - center.lat,
+        lng: edgeCenter.lng - center.lng,
+      };
+
+      const dirToPointLen = Math.sqrt(
+        directionToPoint.lat * directionToPoint.lat + directionToPoint.lng * directionToPoint.lng,
+      );
+      const dirToEdgeLen = Math.sqrt(
+        directionToEdge.lat * directionToEdge.lat + directionToEdge.lng * directionToEdge.lng,
+      );
+
+      if (dirToPointLen === 0 || dirToEdgeLen === 0) {
+        const result = projectPointToSegment(point, start, end);
+        score = result.distance;
+      } else {
+        const dot =
+          (directionToPoint.lat * directionToEdge.lat + directionToPoint.lng * directionToEdge.lng) /
+          (dirToPointLen * dirToEdgeLen);
+        const angleDiff = Math.acos(Math.max(-1, Math.min(1, dot)));
+        score = angleDiff;
+      }
+    } else {
+      const result = projectPointToSegment(point, start, end);
+      score = result.distance;
+    }
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestEdgeCenter = edgeCenter;
+    }
+  }
+
+  return bestEdgeCenter || point;
+};
+
 const getBuildingBounds = (building: Building): [[number, number], [number, number]] => {
   const lat = toNumber(building.lat, DEFAULT_CENTER.lat);
   const lng = toNumber(building.lng, DEFAULT_CENTER.lng);
@@ -541,6 +635,46 @@ const getTPBounds = (tp: TransformerStation): [[number, number], [number, number
   ];
 };
 
+const getTPVerticesFromParams = (
+  centerLat: number,
+  centerLng: number,
+  size: number,
+  angle: number,
+): LatLng[] => {
+  const halfSize = size / 2;
+  const angleRad = (angle * Math.PI) / 180;
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+
+  const cornersInMeters: Array<{ north: number; east: number }> = [
+    { north: -halfSize, east: -halfSize },
+    { north: -halfSize, east: halfSize },
+    { north: halfSize, east: halfSize },
+    { north: halfSize, east: -halfSize },
+  ];
+
+  const rotatedCorners = cornersInMeters.map((corner) => ({
+    north: corner.north * cos - corner.east * sin,
+    east: corner.north * sin + corner.east * cos,
+  }));
+
+  return rotatedCorners.map((corner) => {
+    const cornerDeg = toDegreeVec(corner, centerLat);
+    return {
+      lat: centerLat + cornerDeg.lat,
+      lng: centerLng + cornerDeg.lng,
+    };
+  });
+};
+
+const getTPVertices = (tp: TransformerStation): LatLng[] => {
+  const centerLat = toNumber(tp.center_lat, DEFAULT_CENTER.lat);
+  const centerLng = toNumber(tp.center_lng, DEFAULT_CENTER.lng);
+  const size = toNumber(tp.size_meters, 6);
+  const angle = toNumber(tp.rotation_angle_degrees, 0);
+  return getTPVerticesFromParams(centerLat, centerLng, size, angle);
+};
+
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
@@ -572,7 +706,9 @@ export function App() {
   const [buildingCorners, setBuildingCorners] = useState<LatLng[]>([]);
   const [mainlineClickStage, setMainlineClickStage] = useState<'start' | 'end'>('start');
   const [tempMainlineStart, setTempMainlineStart] = useState<LatLng | null>(null);
-  const [tpClickStage, setTpClickStage] = useState<'center'>('center');
+  const [tpClickStage, setTpClickStage] = useState<'center' | 'angle'>('center');
+  const [tempTpCenter, setTempTpCenter] = useState<LatLng | null>(null);
+  const [tempTpAngle, setTempTpAngle] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [visibleLayers, setVisibleLayers] = useState<Record<SystemType, boolean>>({
     water: true,
@@ -705,6 +841,15 @@ export function App() {
   };
 
   const buildPreview = (cursor: LatLng): void => {
+    if (mode === 'tp' && tpClickStage === 'angle' && tempTpCenter) {
+      const angle = Math.atan2(
+        cursor.lat - tempTpCenter.lat,
+        cursor.lng - tempTpCenter.lng,
+      ) * (180 / Math.PI);
+      setTempTpAngle(angle);
+      return;
+    }
+
     const hoverSnap = findNearestBuildingProjectionWithin(cursor, buildings, buildingFootprints, 20);
     if (hoverSnap) {
       const angleRad = Math.atan2(hoverSnap.tangent.lat, hoverSnap.tangent.lng);
@@ -721,13 +866,24 @@ export function App() {
       return;
     }
 
-    const isTpSystem = system === 'power' || system === 'telecom';
+    const isTpSystem = system === 'power';
+    const mainlineSystems: SystemType[] = ['water', 'sewerage', 'storm', 'heating', 'telecom'];
     let endPoint = cursor;
 
     if ((system === 'sewerage' || system === 'storm') && traces.length > 0) {
       const mainEnd = getSystemMainEndPoint(traces, system);
       if (mainEnd) {
         endPoint = mainEnd;
+      } else if (mainlines.length > 0) {
+        const mainlineProjection = findNearestMainlineProjection(cursor, mainlines, system);
+        if (mainlineProjection) {
+          endPoint = mainlineProjection.projection;
+        }
+      }
+    } else if (mainlineSystems.includes(system) && mainlines.length > 0) {
+      const mainlineProjection = findNearestMainlineProjection(cursor, mainlines, system);
+      if (mainlineProjection) {
+        endPoint = mainlineProjection.projection;
       }
     }
 
@@ -740,8 +896,12 @@ export function App() {
         return dist2 < dist1 ? tp : nearest;
       }, transformerStations[0]);
 
-      const tpBounds = getTPBounds(nearestTP);
-      endPoint = projectToRectangleEdge(cursor, tpBounds);
+      const tpVertices = getTPVertices(nearestTP);
+      const tpCenter: LatLng = {
+        lat: toNumber(nearestTP.center_lat, DEFAULT_CENTER.lat),
+        lng: toNumber(nearestTP.center_lng, DEFAULT_CENTER.lng),
+      };
+      endPoint = projectToPolygonEdge(cursor, tpVertices, tpCenter);
     }
 
   let nearestAttach: {
@@ -870,8 +1030,8 @@ export function App() {
             endLng: latlng.lng,
           });
           await loadProjectData(currentProject.id, { silent: true });
-          setTempMainlineStart(null);
-          setMainlineClickStage('start');
+          setTempMainlineStart(latlng);
+          setMainlineClickStage('end');
         } catch (error) {
           // eslint-disable-next-line no-console
           console.error('Failed to create mainline:', error);
@@ -882,18 +1042,30 @@ export function App() {
 
     if (mode === 'tp') {
       if (tpClickStage === 'center') {
+        setTempTpCenter(latlng);
+        setTpClickStage('angle');
+        setTempTpAngle(0);
+      } else if (tpClickStage === 'angle' && tempTpCenter) {
         try {
           await transformerStationsApi.create({
             projectId: currentProject.id,
             name: `ТП ${transformerStations.length + 1}`,
-            centerLat: latlng.lat,
-            centerLng: latlng.lng,
+            centerLat: tempTpCenter.lat,
+            centerLng: tempTpCenter.lng,
             sizeMeters: 6.0,
+            rotationAngleDegrees: tempTpAngle,
           });
           await loadProjectData(currentProject.id, { silent: true });
+          setTempTpCenter(null);
+          setTpClickStage('center');
+          setTempTpAngle(0);
+          setPreviewPath([]);
         } catch (error) {
           // eslint-disable-next-line no-console
           console.error('Failed to create transformer station:', error);
+          setTempTpCenter(null);
+          setTpClickStage('center');
+          setTempTpAngle(0);
         }
       }
       return;
@@ -922,6 +1094,11 @@ export function App() {
                 )
               : buildOrthogonalLocalPath(startPoint, snap.outwardNormal, snap.tangent, mainEnd, offsetMeters);
           try {
+            const mainlineSystems: SystemType[] = ['water', 'sewerage', 'storm', 'heating', 'telecom'];
+            const mainlineProjection =
+              mainlineSystems.includes(system) && mainlines.length > 0
+                ? findNearestMainlineProjection(mainEnd, mainlines, system)
+                : null;
             const response = await tracesApi.create({
               projectId: currentProject.id,
               systemType: system,
@@ -934,6 +1111,7 @@ export function App() {
               spacingMeters: SYSTEM_CONFIG[system].spacingMeters,
               validateDistances: true,
               buildingId: snap.building.id,
+              mainlineId: mainlineProjection?.mainline.id,
             });
             setTraces((prev) => [...prev, response.data]);
             setTempStart(null);
@@ -1006,15 +1184,30 @@ export function App() {
       }
 
       if (tempStart) {
-        const isTpSystem = system === 'power' || system === 'telecom';
+        const isTpSystem = system === 'power';
+        const mainlineSystems: SystemType[] = ['water', 'sewerage', 'storm', 'heating', 'telecom'];
         let endPoint = latlng;
+        let mainlineId: number | undefined;
 
         if ((system === 'sewerage' || system === 'storm') && traces.length > 0) {
           const mainEnd = getSystemMainEndPoint(traces, system);
           if (mainEnd) {
             endPoint = mainEnd;
+          } else if (mainlines.length > 0) {
+            const mainlineProjection = findNearestMainlineProjection(latlng, mainlines, system);
+            if (mainlineProjection) {
+              endPoint = mainlineProjection.projection;
+              mainlineId = mainlineProjection.mainline.id;
+            }
+          }
+        } else if (mainlineSystems.includes(system) && mainlines.length > 0) {
+          const mainlineProjection = findNearestMainlineProjection(latlng, mainlines, system);
+          if (mainlineProjection) {
+            endPoint = mainlineProjection.projection;
+            mainlineId = mainlineProjection.mainline.id;
           }
         }
+
         let buildingId: number | undefined;
         let startPoint: LatLng = tempStart;
 
@@ -1031,8 +1224,12 @@ export function App() {
             return dist2 < dist1 ? tp : nearest;
           }, transformerStations[0]);
 
-          const tpBounds = getTPBounds(nearestTP);
-          endPoint = projectToRectangleEdge(latlng, tpBounds);
+          const tpVertices = getTPVertices(nearestTP);
+          const tpCenter: LatLng = {
+            lat: toNumber(nearestTP.center_lat, DEFAULT_CENTER.lat),
+            lng: toNumber(nearestTP.center_lng, DEFAULT_CENTER.lng),
+          };
+          endPoint = projectToPolygonEdge(latlng, tpVertices, tpCenter);
         }
 
         const config = SYSTEM_CONFIG[system];
@@ -1107,6 +1304,7 @@ export function App() {
             spacingMeters: config.spacingMeters,
             validateDistances: true,
             buildingId,
+            mainlineId,
           });
 
           setTraces((prev) => [...prev, response.data]);
@@ -1155,6 +1353,9 @@ export function App() {
     setTraces([]);
     setTempStart(null);
     setClickStage('start');
+    setTempTpCenter(null);
+    setTpClickStage('center');
+    setTempTpAngle(0);
     setValidationErrors([]);
     setPendingAttach(null);
     setPreviewPath([]);
@@ -1361,35 +1562,65 @@ export function App() {
             <button
               type="button"
               className={`mode-button ${mode === 'trace' ? 'active' : ''}`}
-              onClick={() => setMode('trace')}
+              onClick={() => {
+                setMode('trace');
+                setTempTpCenter(null);
+                setTpClickStage('center');
+                setTempTpAngle(0);
+                setPreviewPath([]);
+              }}
             >
               Трассировка
             </button>
             <button
               type="button"
               className={`mode-button ${mode === 'building' ? 'active' : ''}`}
-              onClick={() => setMode('building')}
+              onClick={() => {
+                setMode('building');
+                setTempTpCenter(null);
+                setTpClickStage('center');
+                setTempTpAngle(0);
+                setPreviewPath([]);
+              }}
             >
               Здание
             </button>
             <button
               type="button"
               className={`mode-button ${mode === 'mainline' ? 'active' : ''}`}
-              onClick={() => setMode('mainline')}
+              onClick={() => {
+                setMode('mainline');
+                setTempTpCenter(null);
+                setTpClickStage('center');
+                setTempTpAngle(0);
+                setPreviewPath([]);
+              }}
             >
               Магистраль
             </button>
             <button
               type="button"
               className={`mode-button ${mode === 'tp' ? 'active' : ''}`}
-              onClick={() => setMode('tp')}
+              onClick={() => {
+                setMode('tp');
+                setTempTpCenter(null);
+                setTpClickStage('center');
+                setTempTpAngle(0);
+                setPreviewPath([]);
+              }}
             >
               ТП
             </button>
             <button
               type="button"
               className={`mode-button mode-button-danger ${mode === 'delete' ? 'active' : ''}`}
-              onClick={() => setMode('delete')}
+              onClick={() => {
+                setMode('delete');
+                setTempTpCenter(null);
+                setTpClickStage('center');
+                setTempTpAngle(0);
+                setPreviewPath([]);
+              }}
             >
               Удаление
             </button>
@@ -1474,7 +1705,7 @@ export function App() {
                 }
               >
                 {Object.entries(SYSTEM_CONFIG)
-                  .filter(([key]) => ['water', 'sewerage', 'storm', 'heating'].includes(key))
+                  .filter(([key]) => ['water', 'sewerage', 'storm', 'heating', 'telecom'].includes(key))
                   .map(([key, config]) => (
                     <option key={key} value={key}>
                       {config.label}
@@ -1494,7 +1725,23 @@ export function App() {
 
         {mode === 'tp' && (
           <div className="info">
-            <p>Кликните по центру трансформаторной подстанции (6×6 м)</p>
+            <p>
+              {tpClickStage === 'center' ? (
+                <>
+                  Шаг 1: кликните по карте для установки центра ТП.
+                </>
+              ) : (
+                <>
+                  Шаг 2: кликните по карте для выбора угла поворота ТП.
+                </>
+              )}
+            </p>
+            <p className="status">
+              Статус:{' '}
+              {tpClickStage === 'center'
+                ? 'Выберите центр ТП'
+                : 'Выберите направление (угол поворота)'}
+            </p>
           </div>
         )}
 
@@ -1632,11 +1879,14 @@ export function App() {
               const mainlineColor = mode === 'delete' ? '#dc2626' : (config?.color || '#666666');
               const mainlineStartPos = { lat: Number(mainline.start_lat), lng: Number(mainline.start_lng) };
               const mainlineEndPos = { lat: Number(mainline.end_lat), lng: Number(mainline.end_lng) };
-              const mainlineMarkerClickHandler = (position: LatLng) => ({
+              const mainlineMarkerClickHandler = (position: LatLng, isEndPoint: boolean = false) => ({
                 click: (e: L.LeafletMouseEvent) => {
+                  e.originalEvent.stopPropagation();
                   if (mode === 'trace') {
-                    e.originalEvent.stopPropagation();
                     handleMapClick(position);
+                  } else if (mode === 'mainline' && mainlineClickStage === 'start' && isEndPoint) {
+                    setTempMainlineStart(position);
+                    setMainlineClickStage('end');
                   }
                 },
               });
@@ -1645,9 +1895,9 @@ export function App() {
                   <Polyline
                     positions={[mainlineStartPos, mainlineEndPos]}
                     color={mainlineColor}
-                    weight={mode === 'delete' ? 4 : 2}
-                    opacity={mode === 'delete' ? 0.8 : 0.5}
-                    dashArray="10 5"
+                    weight={mode === 'delete' ? 6 : 5}
+                    opacity={mode === 'delete' ? 1.0 : 0.9}
+                    dashArray="15 5"
                     eventHandlers={{
                       click: async (e) => {
                         if (mode === 'delete') {
@@ -1666,23 +1916,23 @@ export function App() {
                   <Marker
                     position={mainlineStartPos}
                     icon={createIcon(mainlineColor)}
-                    eventHandlers={mainlineMarkerClickHandler(mainlineStartPos)}
+                    eventHandlers={mainlineMarkerClickHandler(mainlineStartPos, false)}
                   />
                   <Marker
                     position={mainlineEndPos}
                     icon={createIcon(mainlineColor)}
-                    eventHandlers={mainlineMarkerClickHandler(mainlineEndPos)}
+                    eventHandlers={mainlineMarkerClickHandler(mainlineEndPos, true)}
                   />
                 </Fragment>
               );
             })}
 
             {transformerStations.map((tp) => {
-              const bounds = getTPBounds(tp);
+              const vertices = getTPVertices(tp);
               return (
-                <Rectangle
+                <Polygon
                   key={tp.id}
-                  bounds={bounds}
+                  positions={vertices}
                   pathOptions={{
                     color: mode === 'delete' ? '#dc2626' : '#666666',
                     weight: mode === 'delete' ? 3 : 2,
@@ -1707,9 +1957,23 @@ export function App() {
               );
             })}
 
+            {mode === 'tp' && tpClickStage === 'angle' && tempTpCenter && (
+              <Polygon
+                positions={getTPVerticesFromParams(tempTpCenter.lat, tempTpCenter.lng, 6.0, tempTpAngle)}
+                pathOptions={{
+                  color: '#666666',
+                  weight: 2,
+                  dashArray: '5 5',
+                  fillOpacity: 0.1,
+                }}
+              />
+            )}
+
             <MapClickHandler
               onClick={handleMapClick}
-              onMouseMove={buildPreview}
+              onMouseMove={(latlng) => {
+                buildPreview(latlng);
+              }}
               disabled={!currentProject}
             />
 

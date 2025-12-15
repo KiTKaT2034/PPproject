@@ -4,7 +4,7 @@ import * as transformerStationsService from '../db/transformer-stations-service'
 const router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
-  const { projectId, name, centerLat, centerLng, sizeMeters, description } = req.body;
+  const { projectId, name, centerLat, centerLng, sizeMeters, rotationAngleDegrees, description } = req.body;
 
   if (projectId === undefined || !name || centerLat === undefined || centerLng === undefined) {
     res.status(400).json({ error: 'Missing required fields: projectId, name, centerLat, centerLng' });
@@ -18,6 +18,7 @@ router.post('/', async (req: Request, res: Response) => {
       centerLat,
       centerLng,
       sizeMeters,
+      rotationAngleDegrees || 0.0,
       description,
     );
     res.json(station);

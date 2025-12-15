@@ -37,7 +37,7 @@ export type Building = {
 export type Mainline = {
   id: number;
   project_id: number;
-  system_type: 'water' | 'sewerage' | 'storm' | 'heating';
+  system_type: 'water' | 'sewerage' | 'storm' | 'heating' | 'telecom';
   name: string;
   description: string | null;
   start_lat: number;
@@ -55,6 +55,7 @@ export type TransformerStation = {
   center_lat: number;
   center_lng: number;
   size_meters: number;
+  rotation_angle_degrees: number;
   description: string | null;
   created_at: string;
   updated_at: string;
@@ -103,7 +104,7 @@ export const mainlinesApi = {
 };
 
 export const transformerStationsApi = {
-  create: (data: { projectId: number; name: string; centerLat: number; centerLng: number; sizeMeters?: number; description?: string }) =>
+  create: (data: { projectId: number; name: string; centerLat: number; centerLng: number; sizeMeters?: number; rotationAngleDegrees?: number; description?: string }) =>
     apiClient.post<TransformerStation>('/api/transformer-stations', data),
   getByProject: (projectId: number) => apiClient.get<TransformerStation[]>(`/api/transformer-stations/project/${projectId}`),
   delete: (id: number) => apiClient.delete(`/api/transformer-stations/${id}`),
