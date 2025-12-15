@@ -90,6 +90,7 @@ const METERS_PER_DEG_LAT = 111320;
 const ATTACH_PERP_DEFAULT = 5;
 const ATTACH_PERP_CUSTOM: Partial<Record<SystemType, number>> = {
   sewerage: 3, // хоз-бытовая: не менее 3 м перпендикулярно стене
+  storm: 3, // ливневая: не менее 3 м перпендикулярно стене
 };
 const getAttachPerpMeters = (system: SystemType): number =>
   ATTACH_PERP_CUSTOM[system] ?? ATTACH_PERP_DEFAULT;
@@ -616,6 +617,107 @@ const buildOrthogonalLocalPath = (
   return [start, p1, mid, last];
 };
 
+// Находит точку объединения для нескольких веток от здания
+const findMergePoint = (
+  branchAnchors: Array<{
+    buildingId: number;
+    projection: LatLng;
+    outwardNormal: { lat: number; lng: number };
+    tangent: { lat: number; lng: number };
+  }>,
+  endPoint: LatLng,
+  offsetMeters: number,
+): LatLng => {
+  if (branchAnchors.length === 0) {
+    return endPoint;
+  }
+
+  if (branchAnchors.length === 1) {
+    const anchor = branchAnchors[0];
+    const latRef = anchor.projection.lat;
+    const outwardNormalM = normalizeMeterVec(toMeterVec(anchor.outwardNormal, latRef));
+    const offsetM = {
+      north: outwardNormalM.north * offsetMeters,
+      east: outwardNormalM.east * offsetMeters,
+    };
+    const offsetDeg = toDegreeVec(offsetM, latRef);
+    return {
+      lat: anchor.projection.lat + offsetDeg.lat,
+      lng: anchor.projection.lng + offsetDeg.lng,
+    };
+  }
+
+  // Находим среднюю точку всех проекций
+  const avgLat = branchAnchors.reduce((sum, a) => sum + a.projection.lat, 0) / branchAnchors.length;
+  const avgLng = branchAnchors.reduce((sum, a) => sum + a.projection.lng, 0) / branchAnchors.length;
+  const avgPoint: LatLng = { lat: avgLat, lng: avgLng };
+
+  // Находим среднее направление нормали
+  const avgNormal = branchAnchors.reduce(
+    (acc, a) => {
+      const normalM = normalizeMeterVec(toMeterVec(a.outwardNormal, avgPoint.lat));
+      return {
+        north: acc.north + normalM.north,
+        east: acc.east + normalM.east,
+      };
+    },
+    { north: 0, east: 0 },
+  );
+  const normalizedAvgNormal = normalizeMeterVec(avgNormal);
+
+  // Вычисляем направление к конечной точке (магистрали)
+  const directionToEnd = {
+    lat: endPoint.lat - avgPoint.lat,
+    lng: endPoint.lng - avgPoint.lng,
+  };
+  const directionM = toMeterVec(directionToEnd, avgPoint.lat);
+  const directionNormalized = normalizeMeterVec(directionM);
+
+  // Смещаем среднюю точку в направлении от здания, но также учитываем направление к магистрали
+  const mergeOffsetMeters = Math.max(offsetMeters * 2, 5); // Минимум 5 метров от здания
+  
+  // Комбинируем направление от здания и направление к магистрали
+  const combinedDirection = {
+    north: (normalizedAvgNormal.north * 0.6 + directionNormalized.north * 0.4),
+    east: (normalizedAvgNormal.east * 0.6 + directionNormalized.east * 0.4),
+  };
+  const combinedNormalized = normalizeMeterVec(combinedDirection);
+
+  const offsetM = {
+    north: combinedNormalized.north * mergeOffsetMeters,
+    east: combinedNormalized.east * mergeOffsetMeters,
+  };
+  const offsetDeg = toDegreeVec(offsetM, avgPoint.lat);
+
+  let mergePoint: LatLng = {
+    lat: avgPoint.lat + offsetDeg.lat,
+    lng: avgPoint.lng + offsetDeg.lng,
+  };
+
+  // Проверяем расстояние до конечной точки
+  const distToEndM = Math.sqrt(
+    Math.pow((endPoint.lat - mergePoint.lat) * METERS_PER_DEG_LAT, 2) +
+      Math.pow((endPoint.lng - mergePoint.lng) * metersPerDegLng((endPoint.lat + mergePoint.lat) / 2), 2),
+  );
+
+  // Если точка объединения слишком далеко от конечной точки, перемещаем её ближе
+  // Но не ближе чем на 3 метра от средней точки здания
+  if (distToEndM > 30) {
+    const moveDistance = Math.min(distToEndM - 10, 20); // Двигаем на 10-20 метров ближе к магистрали
+    const moveOffset = {
+      north: directionNormalized.north * moveDistance,
+      east: directionNormalized.east * moveDistance,
+    };
+    const moveOffsetDeg = toDegreeVec(moveOffset, mergePoint.lat);
+    mergePoint = {
+      lat: mergePoint.lat + moveOffsetDeg.lat,
+      lng: mergePoint.lng + moveOffsetDeg.lng,
+    };
+  }
+
+  return mergePoint;
+};
+
 const logTrace = (message: string, data?: unknown) => {
   // eslint-disable-next-line no-console
   console.debug(`[trace] ${message}`, data);
@@ -701,6 +803,8 @@ export function App() {
     }>
   >([]);
   const [previewPath, setPreviewPath] = useState<LatLng[]>([]);
+  const [previewBranches, setPreviewBranches] = useState<LatLng[][]>([]);
+  const [previewMergePoint, setPreviewMergePoint] = useState<LatLng | null>(null);
   const [wallHover, setWallHover] = useState<{ angle: number; at: LatLng } | null>(null);
   const [mode, setMode] = useState<'trace' | 'building' | 'mainline' | 'tp' | 'delete'>('trace');
   const [buildingCorners, setBuildingCorners] = useState<LatLng[]>([]);
@@ -863,6 +967,12 @@ export function App() {
       if (previewPath.length > 0) {
         setPreviewPath([]);
       }
+      if (previewBranches.length > 0) {
+        setPreviewBranches([]);
+      }
+      if (previewMergePoint) {
+        setPreviewMergePoint(null);
+      }
       return;
     }
 
@@ -911,7 +1021,49 @@ export function App() {
     tangent: { lat: number; lng: number };
   } | null = null;
 
-    if ((system === 'sewerage' || system === 'storm') && branchAnchors.length > 0) {
+    // Если есть несколько точек на здании, показываем превью для всех веток
+    if ((system === 'sewerage' || system === 'storm') && branchAnchors.length > 1) {
+      const offsetMeters = getAttachPerpMeters(system);
+      const mergePoint = findMergePoint(branchAnchors, endPoint, offsetMeters);
+
+      // Строим пути для каждой ветки отдельно
+      // Используем простой ортогональный путь для превью
+      const branchPaths: LatLng[][] = [];
+      for (const anchor of branchAnchors) {
+        const branchPath = buildOrthogonalLocalPath(
+          anchor.projection,
+          anchor.outwardNormal,
+          anchor.tangent,
+          mergePoint,
+          offsetMeters,
+        );
+        branchPaths.push(branchPath);
+      }
+
+      // Добавляем путь от точки объединения до магистрали
+      const mainPath = buildOrthogonalPath(mergePoint, endPoint);
+      branchPaths.push(mainPath);
+
+      setPreviewBranches(branchPaths);
+      setPreviewMergePoint(mergePoint);
+      setPreviewPath([]);
+      if (branchAnchors.length > 0) {
+        const first = branchAnchors[0];
+        const angleRad = Math.atan2(first.tangent.lat, first.tangent.lng);
+        const angleDeg = ((angleRad * 180) / Math.PI + 360) % 360;
+        setWallHover({ angle: angleDeg, at: first.projection });
+      }
+      return;
+    }
+
+    // Очищаем множественные ветки, если они были
+    if (previewBranches.length > 0) {
+      setPreviewBranches([]);
+      setPreviewMergePoint(null);
+    }
+
+    // Если есть одна точка в branchAnchors, используем её для превью
+    if ((system === 'sewerage' || system === 'storm') && branchAnchors.length === 1) {
       const first = branchAnchors[0];
       nearestAttach = {
         buildingId: first.buildingId,
@@ -1120,6 +1272,8 @@ export function App() {
             setPendingAttach(null);
             setBranchAnchors([]);
             setPreviewPath([]);
+            setPreviewBranches([]);
+            setPreviewMergePoint(null);
             setWallHover(null);
             logTrace('trace-branch-attached', { system, startPoint, mainEnd, pathPoints });
           } catch (error) {
@@ -1128,6 +1282,8 @@ export function App() {
             setPendingAttach(null);
             setBranchAnchors([]);
             setPreviewPath([]);
+            setPreviewBranches([]);
+            setPreviewMergePoint(null);
             setWallHover(null);
             logTrace('trace-branch-error', error);
           }
@@ -1162,28 +1318,42 @@ export function App() {
         setClickStage('end');
         setValidationErrors([]);
         setPreviewPath([]);
+        setPreviewBranches([]);
         return;
       }
 
       // На этапе end: для sewerage/storm допускаем добавление доп. точек на здании
-      if ((system === 'sewerage' || system === 'storm') && findNearestBuildingProjectionWithin(latlng, buildings, buildingFootprints, 20)) {
+      if ((system === 'sewerage' || system === 'storm') && clickStage === 'end' && branchAnchors.length > 0) {
         const snap = findNearestBuildingProjectionWithin(latlng, buildings, buildingFootprints, 20);
         if (snap) {
-          setBranchAnchors((prev) => [
-            ...prev,
-            {
-              buildingId: snap.building.id,
-              projection: snap.projection,
-              outwardNormal: snap.outwardNormal,
-              tangent: snap.tangent,
-            },
-          ]);
-          logTrace('trace-branch-add', { click: latlng, snap });
+          // Проверяем, не добавляем ли мы уже существующую точку
+          const isDuplicate = branchAnchors.some(
+            (a) =>
+              Math.abs(a.projection.lat - snap.projection.lat) < 0.0001 &&
+              Math.abs(a.projection.lng - snap.projection.lng) < 0.0001,
+          );
+          if (!isDuplicate) {
+            setBranchAnchors((prev) => [
+              ...prev,
+              {
+                buildingId: snap.building.id,
+                projection: snap.projection,
+                outwardNormal: snap.outwardNormal,
+                tangent: snap.tangent,
+              },
+            ]);
+            logTrace('trace-branch-add', { click: latlng, snap, totalBranches: branchAnchors.length + 1 });
+          }
         }
-        return;
+        // Если клик не на здании, продолжаем обработку для создания трасс
+        if (!snap) {
+          // Продолжаем выполнение - клик на магистраль или другую точку
+        } else {
+          return;
+        }
       }
 
-      if (tempStart) {
+      if (tempStart || branchAnchors.length > 0) {
         const isTpSystem = system === 'power';
         const mainlineSystems: SystemType[] = ['water', 'sewerage', 'storm', 'heating', 'telecom'];
         let endPoint = latlng;
@@ -1208,9 +1378,6 @@ export function App() {
           }
         }
 
-        let buildingId: number | undefined;
-        let startPoint: LatLng = tempStart;
-
         if (isTpSystem && transformerStations.length > 0) {
           const nearestTP = transformerStations.reduce((nearest, tp) => {
             const dist1 = Math.sqrt(
@@ -1233,6 +1400,117 @@ export function App() {
         }
 
         const config = SYSTEM_CONFIG[system];
+        const offsetMeters = getAttachPerpMeters(system);
+
+        // Если есть несколько точек на здании (branchAnchors), создаем объединенную систему
+        // Важно: проверяем это ПЕРЕД обычной логикой
+        if ((system === 'sewerage' || system === 'storm') && branchAnchors.length > 1) {
+          try {
+            const mergePoint = findMergePoint(branchAnchors, endPoint, offsetMeters);
+
+            // Создаем трассы для каждой ветки от здания до точки объединения
+            // Используем простой ортогональный путь, так как точка объединения уже достаточно далеко от здания
+            const branchTraces = [];
+            for (const anchor of branchAnchors) {
+              // Используем простой путь от точки на здании до точки объединения
+              // Сначала отходим от стены на offsetMeters, затем идем к точке объединения
+              const branchPath = buildOrthogonalLocalPath(
+                anchor.projection,
+                anchor.outwardNormal,
+                anchor.tangent,
+                mergePoint,
+                offsetMeters,
+              );
+
+              const branchResponse = await tracesApi.create({
+                projectId: currentProject.id,
+                systemType: system,
+                startLat: anchor.projection.lat,
+                startLng: anchor.projection.lng,
+                endLat: mergePoint.lat,
+                endLng: mergePoint.lng,
+                pathPoints: branchPath,
+                doubleLine: config.doubleLine,
+                spacingMeters: config.spacingMeters,
+                validateDistances: true,
+                buildingId: anchor.buildingId,
+              });
+              branchTraces.push(branchResponse.data);
+            }
+
+            // Создаем одну трассу от точки объединения до магистрали
+            const mainlineProjection =
+              mainlines.length > 0
+                ? findNearestMainlineProjection(endPoint, mainlines, system)
+                : null;
+            const mainPath = buildOrthogonalPath(mergePoint, endPoint);
+            const mainResponse = await tracesApi.create({
+              projectId: currentProject.id,
+              systemType: system,
+              startLat: mergePoint.lat,
+              startLng: mergePoint.lng,
+              endLat: endPoint.lat,
+              endLng: endPoint.lng,
+              pathPoints: mainPath,
+              doubleLine: config.doubleLine,
+              spacingMeters: config.spacingMeters,
+              validateDistances: true,
+              mainlineId: mainlineProjection?.mainline.id || mainlineId,
+            });
+
+            setTraces((prev) => [...prev, ...branchTraces, mainResponse.data]);
+            setTempStart(null);
+            setClickStage('start');
+            setValidationErrors([]);
+            setPendingAttach(null);
+            setBranchAnchors([]);
+            setPreviewPath([]);
+            setPreviewBranches([]);
+            setPreviewMergePoint(null);
+            setWallHover(null);
+            logTrace('trace-branches-merged', {
+              system,
+              branchCount: branchAnchors.length,
+              mergePoint,
+              endPoint,
+            });
+          } catch (error: unknown) {
+            setClickStage('start');
+            setTempStart(null);
+            setPendingAttach(null);
+            setBranchAnchors([]);
+            setPreviewPath([]);
+            setPreviewBranches([]);
+            setPreviewMergePoint(null);
+            setWallHover(null);
+            logTrace('trace-branches-error', error);
+            if (
+              error &&
+              typeof error === 'object' &&
+              'response' in error &&
+              error.response &&
+              typeof error.response === 'object' &&
+              'data' in error.response
+            ) {
+              const errorData = error.response.data as {
+                validationErrors?: string[];
+                error?: string;
+              };
+              if (errorData.validationErrors) {
+                setValidationErrors(errorData.validationErrors);
+              } else {
+                setValidationErrors([errorData.error || 'Ошибка при создании трассы']);
+              }
+            } else {
+              setValidationErrors(['Ошибка при создании трассы']);
+            }
+          }
+          return;
+        }
+
+        // Обычная логика для одной точки
+        let buildingId: number | undefined;
+        let startPoint: LatLng = tempStart;
         let pathPoints: LatLng[];
 
         let nearestAttach: {
@@ -1242,7 +1520,16 @@ export function App() {
           tangent: { lat: number; lng: number };
         } | null = null;
 
-        if (pendingAttach) {
+        // Если есть одна точка в branchAnchors, используем её
+        if ((system === 'sewerage' || system === 'storm') && branchAnchors.length === 1) {
+          const anchor = branchAnchors[0];
+          nearestAttach = {
+            buildingId: anchor.buildingId,
+            projection: anchor.projection,
+            outwardNormal: anchor.outwardNormal,
+            tangent: anchor.tangent,
+          };
+        } else if (pendingAttach) {
           nearestAttach = {
             buildingId: pendingAttach.buildingId,
             projection: pendingAttach.projection,
@@ -1265,7 +1552,6 @@ export function App() {
           buildingId = nearestAttach.buildingId;
           startPoint = nearestAttach.projection;
 
-          const offsetMeters = getAttachPerpMeters(system);
           pathPoints = buildOrthogonalLocalPath(
             startPoint,
             nearestAttach.outwardNormal,
@@ -1314,6 +1600,8 @@ export function App() {
           setPendingAttach(null);
           setBranchAnchors([]);
           setPreviewPath([]);
+          setPreviewBranches([]);
+          setPreviewMergePoint(null);
           setWallHover(null);
           logTrace('trace-success', { traceId: response.data.id, system });
         } catch (error: unknown) {
@@ -1322,6 +1610,8 @@ export function App() {
           setPendingAttach(null);
           setBranchAnchors([]);
           setPreviewPath([]);
+          setPreviewBranches([]);
+          setPreviewMergePoint(null);
           setWallHover(null);
           logTrace('trace-error', error);
           if (
@@ -1359,6 +1649,8 @@ export function App() {
     setValidationErrors([]);
     setPendingAttach(null);
     setPreviewPath([]);
+    setPreviewBranches([]);
+    setPreviewMergePoint(null);
     logTrace('clear-all');
   };
 
@@ -1568,6 +1860,7 @@ export function App() {
                 setTpClickStage('center');
                 setTempTpAngle(0);
                 setPreviewPath([]);
+                setPreviewBranches([]);
               }}
             >
               Трассировка
@@ -1581,6 +1874,7 @@ export function App() {
                 setTpClickStage('center');
                 setTempTpAngle(0);
                 setPreviewPath([]);
+                setPreviewBranches([]);
               }}
             >
               Здание
@@ -1594,6 +1888,7 @@ export function App() {
                 setTpClickStage('center');
                 setTempTpAngle(0);
                 setPreviewPath([]);
+                setPreviewBranches([]);
               }}
             >
               Магистраль
@@ -1607,6 +1902,7 @@ export function App() {
                 setTpClickStage('center');
                 setTempTpAngle(0);
                 setPreviewPath([]);
+                setPreviewBranches([]);
               }}
             >
               ТП
@@ -1620,6 +1916,7 @@ export function App() {
                 setTpClickStage('center');
                 setTempTpAngle(0);
                 setPreviewPath([]);
+                setPreviewBranches([]);
               }}
             >
               Удаление
@@ -1661,16 +1958,36 @@ export function App() {
               <p>
                 Шаг 1: кликните по точке на здании (место ввода/выпуска).
                 <br />
-                Шаг 2: кликните по точке присоединения к магистрали/ТП.
+                {(system === 'sewerage' || system === 'storm') && (
+                  <>
+                    Для хоз-бытовой/ливневой канализации можно выбрать несколько точек на здании.
+                    <br />
+                    После выбора всех точек на здании кликните по точке присоединения к магистрали.
+                    <br />
+                  </>
+                )}
+                {!(system === 'sewerage' || system === 'storm') && (
+                  <>
+                    Шаг 2: кликните по точке присоединения к магистрали/ТП.
+                  </>
+                )}
               </p>
               <p>
                 Трасса строится с прямыми углами (минимум 90°) и цветом в зависимости от системы.
+                {(system === 'sewerage' || system === 'storm') && branchAnchors.length > 0 && (
+                  <>
+                    <br />
+                    Выбрано точек на здании: {branchAnchors.length}
+                  </>
+                )}
               </p>
               <p className="status">
                 Статус:{' '}
                 {clickStage === 'start'
                   ? 'Выберите начальную точку'
-                  : 'Выберите конечную точку'}
+                  : (system === 'sewerage' || system === 'storm') && branchAnchors.length > 0
+                    ? `Выбрано точек: ${branchAnchors.length}. Кликните по магистрали для завершения`
+                    : 'Выберите конечную точку'}
               </p>
             </div>
           </>
@@ -2112,6 +2429,14 @@ export function App() {
               <Marker position={tempStart} icon={createIcon('#000000')} />
             )}
 
+            {branchAnchors.map((anchor, index) => (
+              <Marker
+                key={`branch-anchor-${index}`}
+                position={anchor.projection}
+                icon={createIcon(SYSTEM_CONFIG[system].color)}
+              />
+            ))}
+
             {buildingCorners.map((corner, index) => (
               <Marker
                 key={`building-corner-${index}`}
@@ -2147,6 +2472,25 @@ export function App() {
                 dashArray="6 4"
               />
             )}
+
+            {previewBranches.map((branchPath, index) => (
+              <Polyline
+                key={`preview-branch-${index}`}
+                positions={branchPath}
+                color={SYSTEM_CONFIG[system].color}
+                weight={index === previewBranches.length - 1 ? 3 : 2}
+                opacity={0.5}
+                dashArray="6 4"
+              />
+            ))}
+
+            {previewMergePoint && (
+              <Marker
+                position={previewMergePoint}
+                icon={createIcon('#ff0000')}
+              />
+            )}
+
 
             {wallHover && (
               <Marker position={wallHover.at} icon={createIcon('#d63384')} />
